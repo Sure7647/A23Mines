@@ -1,0 +1,211 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Stake Mines Predictor</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: 'Segoe UI', sans-serif;
+      background-color: #0c0f12;
+      color: #e3e3e3;
+      text-align: center;
+      padding: 20px;
+    }
+    h1 {
+      color: #21c37a;
+      font-weight: 600;
+    }
+    .form {
+      margin: 20px auto;
+    }
+    input, select {
+      padding: 10px;
+      margin: 5px;
+      border: none;
+      border-radius: 8px;
+      background-color: #1a1f24;
+      color: white;
+      width: 200px;
+    }
+    input::placeholder {
+      color: #888;
+    }
+    button {
+      padding: 10px 20px;
+      font-size: 16px;
+      border: none;
+      border-radius: 8px;
+      background-color: #1a1f24;
+      color: white;
+      margin: 10px;
+      transition: background-color 0.2s ease;
+    }
+    button:hover {
+      background-color: #21c37a;
+      color: black;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(5, 60px);
+      grid-gap: 10px;
+      justify-content: center;
+      margin: 20px auto;
+      max-width: 320px;
+    }
+    .cell {
+      width: 60px;
+      height: 60px;
+      background-color: #13191e;
+      border: 1px solid #2a2f34;
+      border-radius: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 24px;
+      cursor: pointer;
+      transition: all 0.2s ease-in-out;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.5);
+    }
+    .cell.safe {
+      background-color: #21c37a;
+      color: #ffffff;
+    }
+    .cell.bomb {
+      background-color: #db3f3f;
+      color: white;
+    }
+    .cell.revealed {
+      cursor: default;
+      pointer-events: none;
+    }
+    .status {
+      margin-top: 20px;
+      font-size: 18px;
+      color: #aaa;
+    }
+    @media screen and (max-width: 600px) {
+      .grid {
+        grid-template-columns: repeat(5, 50px);
+      }
+      .cell {
+        width: 50px;
+        height: 50px;
+        font-size: 20px;
+      }
+      input, select {
+        width: 90%;
+      }
+    }
+  </style>
+</head>
+<body>
+  <h1>Stake Mines Predictor</h1>
+  <div class="form">
+    <input type="text" id="serverSeed" placeholder="Server Seed" />
+    <input type="text" id="clientSeed" placeholder="Client Seed" />
+    <select id="mines">
+      <option value="1">1</option>
+      <option value="3" selected>3</option>
+      <option value="5">5</option>
+      <option value="10">10</option>
+      <option value="15">15</option>
+      <option value="20">20</option>
+      <option value="24">24</option>
+    </select>
+    <button onclick="startGame()">Predict Mines</button>
+  </div>
+  <div id="game" class="grid"></div>
+  <div class="status" id="statusText"></div>
+  <script>
+    let bombs = new Set();
+    let revealed = new Set();
+    let gameOver = false;
+    let mineCount = 3;
+
+    async function sha256(message) {
+      const msgBuffer = new TextEncoder().encode(message);
+      const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    function seedShuffle(array, seed) {
+      let result = array.slice();
+      for (let i = result.length - 1; i > 0; i--) {
+        const j = Math.abs((seed + i) % (i + 1));
+        [result[i], result[j]] = [result[j], result[i]];
+      }
+      return result;
+    }
+
+    async function startGame() {
+      const serverSeed = document.getElementById("serverSeed").value.trim();
+      const clientSeed = document.getElementById("clientSeed").value.trim();
+      mineCount = parseInt(document.getElementById("mines").value);
+
+      if (!serverSeed || !clientSeed) {
+        alert("Please enter both Server and Client Seed.");
+        return;
+      }
+
+      const combinedSeed = serverSeed + "-" + clientSeed;
+      const hashHex = await sha256(combinedSeed);
+
+      const grid = document.getElementById("game");
+      grid.innerHTML = '';
+      revealed.clear();
+      bombs.clear();
+      gameOver = false;
+      document.getElementById("statusText").textContent = '';
+
+      const positions = Array.from({ length: 25 }, (_, i) => i);
+      const hashInt = parseInt(hashHex.slice(0, 16), 16);
+      const seededPositions = seedShuffle(positions, hashInt);
+      bombs = new Set(seededPositions.slice(0, mineCount));
+
+      for (let i = 0; i < 25; i++) {
+        const cell = document.createElement("div");
+        cell.className = "cell";
+        cell.dataset.index = i;
+        cell.onclick = () => reveal(i, cell);
+        grid.appendChild(cell);
+      }
+    }
+
+    function reveal(index, cell) {
+      if (gameOver || revealed.has(index)) return;
+
+      revealed.add(index);
+      cell.classList.add('revealed');
+
+      if (bombs.has(index)) {
+        cell.classList.add('bomb');
+        cell.textContent = '💣';
+        gameOver = true;
+        document.getElementById("statusText").textContent = 'Game Over!';
+        revealAllBombs();
+      } else {
+        cell.classList.add('safe');
+        cell.textContent = '💎';
+        if (revealed.size === (25 - bombs.size)) {
+          document.getElementById("statusText").textContent = 'You Win!';
+        }
+      }
+    }
+
+    function revealAllBombs() {
+      document.querySelectorAll('.cell').forEach((cell, idx) => {
+        if (bombs.has(idx)) {
+          cell.classList.add('bomb', 'revealed');
+          cell.textContent = '💣';
+        }
+      });
+    }
+
+    startGame();
+  </script>
+</body>
+</html>
